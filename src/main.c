@@ -1,4 +1,4 @@
-#include "raygrid.h"
+#include "bsp_visualizer.h"
 
 int main(void)
 {
@@ -23,112 +23,72 @@ int main(void)
     int scissorMode = 0;
 
     // DONT CALL GETSCREENWIDTH OR GETSCREENHEIGHT BEFORE INITWINDOW
-    Vector2 center = (Vector2){GetScreenWidth() / 2, GetScreenHeight() / 2};
-
-
+    Vector2 screen_center;
+    Vector2 world_dimensions;
+    Vector2 world_tile_size;
+    Vector2 player_size;
+    float tile_sw, tile_sh;
     Camera2D map_cam, player_cam, mini_map_cam;
-    Vector2 player_size = (Vector2){.x = .0333 * DEFAULT_WINDOW_X, .y = .0667 * DEFAULT_WINDOW_Y};
-    Player player = init_player(center, (Vector2){0, 0}, (Vector2){0, 0}, player_size, 0, 0);
+    Player player;
+    Rectangle left_half, upper_right, lower_right;
 
-    map_cam = init_cam(center);
+    screen_center = get_screen_center();
+    world_tile_size = update_world_tile_size(get_screen_dimensions(), map_subdivisions);
+    tile_sw = world_tile_size.x; // world_size / subdivisions
+    tile_sh = world_tile_size.y;
+    world_dimensions = get_map_world_size(map_subdivisions, world_tile_size);
+    // Scissor viewports
+    left_half = update_rectangle(left_half, 0, 0, screen_center.x, screen_center.y*2);
+    upper_right = update_rectangle(upper_right, screen_center.x, 0, screen_center.x, screen_center.y);
+    lower_right = update_rectangle(lower_right, screen_center.x, screen_center.y, screen_center.x, screen_center.y);
+    // Player
+    player_size = (Vector2){.x = tile_sw / 4, .y = tile_sh / 3};
+    player = init_player(screen_center, (Vector2){0, 0}, (Vector2){0, 0}, player_size, 0, 0);
+    map_cam = init_cam(screen_center);
     player_cam = init_cam(player.position);
-    mini_map_cam = init_cam(center);
-    // half width and full height
-    Rectangle left_half =
-        {
-            .x = 0,
-            .y = 0,
-            .width = GetScreenWidth() / 2,
-            .height = GetScreenHeight()};
-    Rectangle upper_right =
-        {
-            .x = GetScreenWidth() / 2,
-            .y = 0,
-            .width = GetScreenWidth() / 2,
-            .height = GetScreenHeight() / 2};
-    Rectangle lower_right =
-        {
-            .x = GetScreenWidth() / 2,
-            .y = GetScreenHeight() / 2,
-            .width = GetScreenWidth() / 2,
-            .height = GetScreenHeight() / 2};
+    mini_map_cam = init_cam(screen_center);
+
 
     while (!WindowShouldClose())
     {
-        // --- Recalculate viewports (window is resizable) ---
-        float tsx = GetScreenWidth() / map_subdivisions.x;
-        float tsy = GetScreenHeight() / map_subdivisions.y;
-        float world_x = map_subdivisions.x * tsx;
-        float world_y = map_subdivisions.y * tsy;
-        left_half = update_rectangle(left_half, 0, 0, GetScreenWidth() / 2, GetScreenHeight());
-        upper_right = update_rectangle(upper_right, GetScreenWidth() / 2, 0, GetScreenWidth() / 2, GetScreenHeight() / 2);
-        lower_right = update_rectangle(lower_right, GetScreenWidth() / 2, GetScreenHeight() / 2, GetScreenWidth() / 2, GetScreenHeight() / 2);
-        Vector2 MAP_WORLD_CENTER = (Vector2){
-            world_x / 2.0f,
-            world_y / 2.0f
-        };
-        Vector2 map_cam_center = (Vector2){
-            left_half.x + left_half.width / 2.0f,
-            left_half.height / 2.0f
-        };
-        Vector2 player_cam_center = (Vector2){
-            upper_right.x + upper_right.width / 2.0f,
-            upper_right.height / 2.0f
-        };
-        Vector2 mini_map_screen_center = (Vector2){
-            lower_right.x + lower_right.width / 2.0f,
-            lower_right.y + lower_right.height / 2.0f
-        };
+        if (IsWindowResized())
+        {
+            screen_center = get_screen_center();
+            world_tile_size = update_world_tile_size(get_screen_dimensions(), map_subdivisions);
+            tile_sw = world_tile_size.x; // world_size / subdivisions
+            tile_sh = world_tile_size.y;
+            world_dimensions = get_map_world_size(map_subdivisions, world_tile_size);
+            left_half = update_rectangle(left_half, 0, 0, screen_center.x, screen_center.y*2);
+            upper_right = update_rectangle(upper_right, screen_center.x, 0, screen_center.x, screen_center.y);
+            lower_right = update_rectangle(lower_right, screen_center.x, screen_center.y, screen_center.x, screen_center.y);
+            map_cam = init_cam(screen_center);
+            player_cam = init_cam(player.position);
+            mini_map_cam = init_cam(screen_center);
+
+        }
         
         // --- Update player ---
         controls(&player);
 
-        // --- LEFT CAMERA ---
-        map_cam.target = player.position;
-        map_cam.offset = map_cam_center;
-
-        // --- UP RIGHT CAMERA ---
-        player_cam.target = player.position;
-        player_cam.offset = player_cam_center;
-
-        // --- LOWER RIGHT CAMERA ---
-        mini_map_cam.target = MAP_WORLD_CENTER; // World Space
-        mini_map_cam.offset = mini_map_screen_center; // Screen Space
-        mini_map_cam.zoom = fminf(
-            lower_right.width  / world_x,
-            lower_right.height / world_y
-        );
+        // --- MAP VIEW ---
+        update_camera(&map_cam, player.position, get_rect_center(left_half), 1.0f);
+        // --- PLAYER VIEW ---
+        update_camera(&player_cam, player.position, get_rect_center(upper_right), 1.0f);
+        // --- MINI MAP VIEW  ---
+        Vector2 lower_right_to_world = get_rec_to_world(lower_right, world_dimensions);
+        float mini_map_zoom = fminf(lower_right_to_world.x, lower_right_to_world.y);
+        update_camera(&mini_map_cam, get_map_world_center(world_dimensions), get_rect_center(lower_right), mini_map_zoom);
 
         // --- RENDER ---
         BeginDrawing();
         ClearBackground(BLACK);
 
         // LEFT VIEW
-        BeginScissorMode(left_half.x, left_half.y,
-                        left_half.width, left_half.height);
-        BeginMode2D(map_cam);
-            draw_map(map, 8, 8);
-            draw_player(&player, RED);
-        EndMode2D();
-        EndScissorMode();
-
+        manage_scissor_camera(&left_half, &map_cam, map, map_subdivisions, &player, RED);
         // UPPER RIGHT VIEW
-        BeginScissorMode(upper_right.x, upper_right.y,
-                        upper_right.width, upper_right.height);
-        BeginMode2D(player_cam);
-            draw_map(map, 8, 8);
-            draw_player(&player, RED);
-        EndMode2D();
-        EndScissorMode();
-        
+        manage_scissor_camera(&upper_right, &player_cam, map, map_subdivisions, &player, RED);
         // BOTTOM RIGHT VIEW
-        BeginScissorMode(lower_right.x, lower_right.y,
-                        lower_right.width, lower_right.height);
-        BeginMode2D(mini_map_cam);
-            draw_map(map, 8, 8);
-            draw_player(&player, RED);
-        EndMode2D();
-        EndScissorMode();
+        manage_scissor_camera(&lower_right, &mini_map_cam, map, map_subdivisions, &player, RED);
 
         // Left View Title
         DrawText("Rendered", left_half.x + 20, left_half.y+ 20, 20, WHITE);

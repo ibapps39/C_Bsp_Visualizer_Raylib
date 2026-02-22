@@ -141,6 +141,66 @@ Player init_player(Vector2 pos, Vector2 speed, Vector2 forward_v, Vector2 size, 
 // //  State
 // // =========================================================
 
+
+// // =========================================================
+// //  Helpers
+// // =========================================================
+
+Vector2 get_rec_to_world(Rectangle r, Vector2 world_size) {
+        return (Vector2){
+            .x = r.width / world_size.x, 
+            .y = r.height / world_size.y
+        };
+}
+
+Rectangle update_rectangle(Rectangle r, float x, float y, float width, float height)
+{
+            return r = (Rectangle){
+            .x = x,
+            .y = y,
+            .width = width,
+            .height = height
+        };
+}
+
+Vector2 get_screen_dimensions() {
+    return (Vector2){.x = GetScreenWidth(), .y = GetScreenHeight()};
+}
+Vector2 get_screen_center() {
+    return (Vector2){.x = GetScreenWidth() / 2.0f, .y = GetScreenHeight() / 2.0f};
+}
+Rectangle update_viewports(Rectangle r, int x, int y, int w, int h) {
+    return update_rectangle(r, x, y, w, h);
+}
+Camera2D get_camera(Vector2 target, Vector2 offset, float zoom) {
+    Camera2D cam = {0};
+    cam.target = target;
+    cam.offset = offset;
+    cam.zoom   = zoom;
+    return cam;
+}
+void update_camera(Camera2D* cam, Vector2 target, Vector2 offset, float zoom) {
+    cam->target = target;
+    cam->offset = offset;
+    cam->zoom   = zoom;
+}
+Vector2 get_rect_center(Rectangle r) {
+    return (Vector2){ r.x + r.width / 2.0f, r.y + r.height / 2.0f };
+}
+Vector2 get_map_world_size(Vector2 subdivisions, Vector2 tile_size) {
+    return (Vector2){ subdivisions.x * tile_size.x, subdivisions.y * tile_size.y };
+}
+
+Vector2 get_map_world_center(Vector2 world_size) {
+    return (Vector2){ world_size.x / 2.0f, world_size.y / 2.0f };
+}
+Vector2 update_world_tile_size(Vector2 world_size, Vector2 subdivisions) 
+{
+    // typically GetScreenWidth() and GetScreenHeight()
+    float tile_size_width = world_size.x / subdivisions.x;
+    float tile_size_height = world_size.y / subdivisions.y;
+    return (Vector2){ .x = tile_size_width, .y = tile_size_height };
+}
 // // =========================================================
 // //  Drawing
 // // =========================================================
@@ -180,15 +240,6 @@ void draw_ray(Ray ray, Vector2 end, Color c)
     DrawLine(ray.position.x, ray.position.y, end.x, end.y, c);
 }
 
-Rectangle update_rectangle(Rectangle r, float x, float y, float width, float height)
-{
-            return r = (Rectangle){
-            .x = x,
-            .y = y,
-            .width = width,
-            .height = height
-        };
-}
 
 // // =========================================================
 // //  Art
@@ -270,4 +321,19 @@ void controls(Player* p)
             .y = GetScreenHeight() / 2
         };
     }
+}
+
+// // =========================================================
+// //  Camera
+// // =========================================================
+
+void manage_scissor_camera(Rectangle* scissor_rect, Camera2D* cam, int* map, Vector2 subdivisions, Player* player, Color c)
+{
+    BeginScissorMode(scissor_rect->x, scissor_rect->y,
+                     scissor_rect->width, scissor_rect->height);
+    BeginMode2D(*cam);
+    draw_map(map, subdivisions.x, subdivisions.y);
+    draw_player(player, c);
+    EndMode2D();
+    EndScissorMode();
 }
