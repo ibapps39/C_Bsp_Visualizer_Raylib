@@ -13,7 +13,8 @@ int main(void)
         1, 0, 0, 0, 0, 0, 0, 1,
         1, 0, 0, 0, 0, 0, 0, 1,
         1, 1, 1, 1, 1, 1, 1, 1};
-    int map_total_element = sizeof(map) / sizeof(map[0]);
+
+    int map_count = sizeof(map) / sizeof(map[0]);
     Vector2 map_subdivisions = {.x = (int)8, .y = (int)8};
 
     // Initialization
@@ -38,16 +39,16 @@ int main(void)
     tile_sh = world_tile_size.y;
     world_dimensions = get_map_world_size(map_subdivisions, world_tile_size);
     // Scissor viewports
-    left_half = update_rectangle(left_half, 0, 0, screen_center.x, screen_center.y*2);
+    left_half = update_rectangle(left_half, 0, 0, screen_center.x, screen_center.y * 2);
     upper_right = update_rectangle(upper_right, screen_center.x, 0, screen_center.x, screen_center.y);
     lower_right = update_rectangle(lower_right, screen_center.x, screen_center.y, screen_center.x, screen_center.y);
     // Player
     player_size = (Vector2){.x = tile_sw / 4, .y = tile_sh / 3};
-    player = init_player(screen_center, (Vector2){0, 0}, (Vector2){0, 0}, player_size, 0, 0);
+    player = init_player(screen_center, Vector2Zero(), (Vector2Zero()), player_size, 0);
+    player.forward_v = (Vector2){.x = player.position.x+player_size.x, .y = player.position.y+player_size.y/2};
     map_cam = init_cam(screen_center);
     player_cam = init_cam(player.position);
     mini_map_cam = init_cam(screen_center);
-
 
     while (!WindowShouldClose())
     {
@@ -58,17 +59,16 @@ int main(void)
             tile_sw = world_tile_size.x; // world_size / subdivisions
             tile_sh = world_tile_size.y;
             world_dimensions = get_map_world_size(map_subdivisions, world_tile_size);
-            left_half = update_rectangle(left_half, 0, 0, screen_center.x, screen_center.y*2);
+            left_half = update_rectangle(left_half, 0, 0, screen_center.x, screen_center.y * 2);
             upper_right = update_rectangle(upper_right, screen_center.x, 0, screen_center.x, screen_center.y);
             lower_right = update_rectangle(lower_right, screen_center.x, screen_center.y, screen_center.x, screen_center.y);
             map_cam = init_cam(screen_center);
             player_cam = init_cam(player.position);
             mini_map_cam = init_cam(screen_center);
-
         }
-        
+
         // --- Update player ---
-        controls(&player);
+        controls(&player, map, map_subdivisions, world_tile_size, 200.0f);
 
         // --- MAP VIEW ---
         update_camera(&map_cam, player.position, get_rect_center(left_half), 1.0f);
@@ -84,18 +84,20 @@ int main(void)
         ClearBackground(BLACK);
 
         // LEFT VIEW
-        manage_scissor_camera(&left_half, &map_cam, map, map_subdivisions, &player, RED);
+        manage_scissor_camera(&left_half, &map_cam, map, map_subdivisions, &player, RED, world_tile_size);
         // UPPER RIGHT VIEW
-        manage_scissor_camera(&upper_right, &player_cam, map, map_subdivisions, &player, RED);
+        manage_scissor_camera(&upper_right, &player_cam, map, map_subdivisions, &player, RED, world_tile_size);
         // BOTTOM RIGHT VIEW
-        manage_scissor_camera(&lower_right, &mini_map_cam, map, map_subdivisions, &player, RED);
+        manage_scissor_camera(&lower_right, &mini_map_cam, map, map_subdivisions, &player, RED, world_tile_size);
 
         // Left View Title
-        DrawText("Rendered", left_half.x + 20, left_half.y+ 20, 20, WHITE);
+        DrawText("Rendered", left_half.x + 20, left_half.y + 20, 20, WHITE);
         // Right View Title
-        DrawText("Ray Cast", upper_right.x + 20, upper_right.y+ 20, 20, WHITE);
+        DrawText("Ray Cast", upper_right.x + 20, upper_right.y + 20, 20, WHITE);
         // Bottom Right View Title
-        DrawText("BSP Tree", lower_right.x + 20, lower_right.y+ 20, 20, WHITE);
+        DrawText("BSP Tree", lower_right.x + 20, lower_right.y + 20, 20, WHITE);
+        // Draw player angle
+        DrawText(TextFormat("angle radi: %f, degrees: %.2f", player.angle_radians, player.angle_radians*RAD2DEG, left_half.x + 100, left_half.y + 40, 20, WHITE), left_half.x + 20, left_half.y + 40, 20, WHITE);
         EndDrawing();
     }
     CloseWindow();
