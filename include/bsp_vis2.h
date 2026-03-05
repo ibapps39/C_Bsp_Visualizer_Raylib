@@ -3,6 +3,8 @@
 #include "raylib.h"
 #include "raymath.h"
 #include <stdlib.h> // Required for malloc/free
+#include <stdio.h>
+
 
 // =========================================================
 //                   - TODO -
@@ -58,13 +60,116 @@ typedef struct Player
     Color color;
 } Player;
 
-typedef struct ray
+typedef enum SCREENS
 {
-    Vector2 origin;
-    Vector2 direction;
-    float ro; // t
-} ray;
+    RENDER,
+    RAY,
+    TREE
+} SCREENS;
 
+
+typedef enum Neon_Colors
+{
+    green_n,
+    blue_n,
+    red_n,
+    yellow_n,
+    pink_n,
+    purple_n
+} Neon_Colors;
+
+// =========================================================
+//  HELPERS
+// =========================================================
+Vector2 get_rec_to_world(Rectangle r, Vector2 world_size)
+{
+    return (Vector2){
+        .x = r.width / world_size.x,
+        .y = r.height / world_size.y};
+}
+
+Rectangle update_rectangle(Rectangle r, float x, float y, float width, float height)
+{
+    return r = (Rectangle){
+               .x = x,
+               .y = y,
+               .width = width,
+               .height = height};
+}
+
+Vector2 get_screen_dimensions()
+{
+    return (Vector2){.x = GetScreenWidth(), .y = GetScreenHeight()};
+}
+Vector2 get_screen_center()
+{
+    return (Vector2){.x = GetScreenWidth() / 2.0f, .y = GetScreenHeight() / 2.0f};
+}
+Rectangle update_viewports(Rectangle r, int x, int y, int w, int h)
+{
+    return update_rectangle(r, x, y, w, h);
+}
+Camera2D get_camera(Vector2 target, Vector2 offset, float zoom)
+{
+    Camera2D cam = {0};
+    cam.target = target;
+    cam.offset = offset;
+    cam.zoom = zoom;
+    return cam;
+}
+void update_camera(Camera2D *cam, Vector2 target, Vector2 offset, float zoom)
+{
+    cam->target = target;
+    cam->offset = offset;
+    cam->zoom = zoom;
+}
+Vector2 get_rect_center(Rectangle r)
+{
+    return (Vector2){r.x + r.width / 2.0f, r.y + r.height / 2.0f};
+}
+Vector2 get_map_world_size(Vector2 subdivisions, Vector2 tile_size)
+{
+    return (Vector2){subdivisions.x * tile_size.x, subdivisions.y * tile_size.y};
+}
+
+Vector2 get_map_world_center(Vector2 world_size)
+{
+    return (Vector2){world_size.x / 2.0f, world_size.y / 2.0f};
+}
+Vector2 update_world_tile_size(Vector2 world_size, Vector2 subdivisions)
+{
+    // typically GetScreenWidth() and GetScreenHeight()
+    float tile_size_width = world_size.x / subdivisions.x;
+    float tile_size_height = world_size.y / subdivisions.y;
+    return (Vector2){.x = tile_size_width, .y = tile_size_height};
+}
+float increment_angle(float *radians, float amt)
+{
+    amt = fmod(amt, 2 * M_PI);
+    amt = amt < 0 ? amt + 2 * M_PI : amt;
+    *radians = amt;
+    return *radians;
+}
+void update_player_angle(Player *player, float radians)
+{
+    player->rad_angle += radians;
+}
+Vector2 get_player_center(Player *player)
+{
+    return (Vector2){player->position.x + player->size.x / 2.0f, player->position.y + player->size.y / 2.0f};
+}
+Camera2D init_cam(Vector2 pos)
+{
+    Camera2D cam;
+    cam.target = pos;
+    cam.offset = pos;
+    cam.rotation = 0.0f;
+    cam.zoom = 1.0f;
+    return cam;
+}
+// =========================================================
+//  HELPERS
+// =========================================================
 void draw_map_2D(int m_size, int m_w, int m_h, int *map)
 {
     for (int y = 0; y < m_h; y++)
@@ -83,7 +188,7 @@ int get_tile(int col, int row, int *map, int size)
 }
 
 // DDA - everything in tile space until end
-Vector3 dda(int *map, int map_width, int map_height, Vector2 ro, float rads, float world_space_units, int max_dof)
+Vector4 dda(int *map, int map_width, int map_height, Vector2 ro, float rads, float world_space_units, int max_dof)
 {
     float origin_x = ro.x / world_space_units;
     float origin_y = ro.y / world_space_units;
@@ -148,7 +253,7 @@ Vector3 dda(int *map, int map_width, int map_height, Vector2 ro, float rads, flo
         if (mapx < 0 || mapx >= map_width || mapy < 0 || mapy >= map_height)
         {
             hit = 1;
-            return (Vector3){.x = -1, .y = -1, .z = -1};
+            return (Vector4){.x = -1, .y = -1, .z = -1};
         }
         if (map[mapx + mapy * map_width] == WALL)
         {
@@ -160,7 +265,7 @@ Vector3 dda(int *map, int map_width, int map_height, Vector2 ro, float rads, flo
     hit_dist *= world_space_units;
     hitx = ro.x + (hit_dist * dirx);
     hity = ro.y + (hit_dist * diry);
-    Vector3 hit_point = {.x = hitx, .y = hity, .z = hit_dist};
+    Vector4 hit_point = {.x = hitx, .y = hity, .z = hit_dist, .w = side};
     return hit_point;
 }
 
@@ -214,29 +319,47 @@ float controls_ang(Player *p, float rads, float dt)
     }
 }
 
-void controls(Player *p, float dt)
+void controls(Player *p, float dt, Vector4* ray)
 {
-    float rads = 0.1;
-    Vector2 next;
+    dt = dt*GetFrameTime();
+    float rads = 0.1f;
+    Vector2 next = {0};
+
     if (IsKeyDown(KEY_A))
     {
         controls_ang(p, rads, dt);
     }
+
     if (IsKeyDown(KEY_D))
     {
-        int dir = -1;
-        controls_ang(p, dir * rads, dt);
+        controls_ang(p, -rads, dt);
     }
+
     if (IsKeyDown(KEY_W))
     {
-        p->position.x += (p->player_angle.x / 8) * 20;
-        p->position.y += (p->player_angle.y / 8) * 20;
+        if (ray->z > 2)
+        {
+            next.x = (p->player_angle.x / 8) * 20;
+            next.y = (p->player_angle.y / 8) * 20;
+        }
+
+        p->position.x += next.x;
+        p->position.y += next.y;
     }
+
     if (IsKeyDown(KEY_S))
     {
-        p->position.x -= (p->player_angle.x / 8) * 20;
-        p->position.y -= (p->player_angle.y / 8) * 20;
+        if (ray->z > 2)
+        {
+            next.x = -(p->player_angle.x / 8) * 20;
+            next.y = -(p->player_angle.y / 8) * 20;
+        }
+
+        p->position.x += next.x;
+        p->position.y += next.y;
     }
+
+    printf("%f\n", ray->z);
 }
 
 void init_player(Player *p, int map_size, int *map)
@@ -276,12 +399,12 @@ void init_player(Player *p, int map_size, int *map)
     p->y_offset = p->position.y / 2 + p->size.y * 2;
 }
 
-Vector3 dda_fov_i(Player *player, int map_size, int *map, int num_rays, float fov_degrees, int tile_size, int max_dof, int i)
+Vector4 dda_fov_i(Player *player, int map_size, int *map, int num_rays, float fov_degrees, int tile_size, int max_dof, int i)
 {
     // Convert FOV to Radians
     float fov_rad = fov_degrees * DEG2RAD;
     float rayi_angle = (player->rad_angle - (fov_rad / 2.0f)) + (i * fov_rad / num_rays);
-    Vector3 result = dda(map, 8, 8, player->position, rayi_angle, tile_size, max_dof);
+    Vector4 result = dda(map, 8, 8, player->position, rayi_angle, tile_size, max_dof);
     return result;
 }
 
@@ -290,29 +413,84 @@ void draw_dda_topdown(Vector2 player, Vector2 v)
     DrawLineEx(player, v, 3.0f, RED);
 }
 #include <stdio.h>
-void draw_dda_fp(Vector2 player, Vector3 v)
+void draw_dda_fp(int ray_index, int num_rays, Vector4 v, int screen_w, int screen_h)
 {
-    float line_h = (v.z < 2) ? GetScreenHeight() : 1.0f/v.z;
-    Vector2 start = {.x = v.x, .y = v.y};
-    Vector2 end = {.x = v.x, .y = v.y + line_h};
-    DrawLineEx(start, end, 10.0f, RED);
-    printf("x: %.2f, y: %.2f, z: %.2f\n", v.x, v.y, v.z);
-    
+    if (v.z <= 0.0001f) return;
+
+    // width of one ray column
+    float col_w = (float)screen_w / (float)num_rays; // 1 ray per column
+    float col_x = ray_index * col_w;
+
+    // distance (avoid division explosion)
+    float dist = v.z;
+    if (dist < 0.01f) dist = 0.01f;
+
+    // wall height projection
+    float wall_h = screen_h / dist;
+
+    float wall_top    = (screen_h * 0.5f) - (wall_h * 0.5f);
+    float wall_bottom = (screen_h * 0.5f) + (wall_h * 0.5f);
+
+    // clamp
+    if (wall_top < 0) wall_top = 0;
+    if (wall_bottom > screen_h) wall_bottom = screen_h;
+
+    Vector2 start = { col_x, wall_top };
+    Vector2 end   = { col_x, wall_bottom };
+
+    // simple shading (y-side darker)
+    Color c = (v.w == 0)
+        ? BLUE
+        : (Color){ BLUE.r / 2, BLUE.g / 2, BLUE.b / 2, 255 };
+
+    DrawLineEx(start, end, col_w + 1, c);
 }
-void draw(Player *player, int map_size, int *map, int num_rays, float fov_degrees, int max_dof)
-{
-    //draw_map_2D(map_size, 8, 8, map);
-    //draw_player(player);
-    //draw_player_offset(player, 3);
-    float tile_size = 8 * 8; // map_w * map_h
-    for (size_t i = 0; i < num_rays; i++)
-    {
-        Vector3 ray_i = dda_fov_i(player, map_size, map, num_rays, fov_degrees, tile_size, max_dof, i);
+// void draw(Player *player, int map_size, int *map, int num_rays, float fov_degrees, int max_dof)
+// {
+//     //draw_player(player);
+//     //draw_player_offset(player, 3);
+//     float tile_size = 8 * 8; // map_w * map_h
+//     for (size_t i = 0; i < num_rays; i++)
+//     {
+//         Vector4 ray_i = dda_fov_i(player, map_size, map, num_rays, fov_degrees, tile_size, max_dof, i);
         
+//         Vector2 rayi_v2 = (Vector2){.x = ray_i.x, .y = ray_i.y};
+//         draw_dda_topdown(player->position, rayi_v2);
+//         draw_dda_fp(player->position, ray_i);
+//     }
+    
+    
+// }
+void manage_scissor_camera(Rectangle *scissor_rect, Camera2D *cam, int *map, Vector2 subdivisions, Player *player, Color c, Vector2 world_tile_size, int id, Vector4* rdda)
+{
+    BeginScissorMode(scissor_rect->x, scissor_rect->y,
+                     scissor_rect->width, scissor_rect->height);
+    BeginMode2D(*cam);
+
+        for (size_t i = 0; i < 60; i++)
+    {
+        Vector4 ray_i = dda_fov_i(player, 64, map, 60, 60, 64, 8, i);
+        *rdda = ray_i;
         Vector2 rayi_v2 = (Vector2){.x = ray_i.x, .y = ray_i.y};
-        //draw_dda_topdown(player->position, rayi_v2);
-        draw_dda_fp(player->position, ray_i);
+    switch (id)
+    {
+    case RENDER:
+        draw_dda_fp(i, 60, ray_i, scissor_rect->width, scissor_rect->height);
+        break;
+    case RAY:
+        draw_map_2D(64, 8, 8, map);
+        draw_player(player);
+        draw_dda_topdown(player->position, rayi_v2);
+    break;
+    case TREE:
+        // draw_map_2D(64, 8, 8, map);
+        // draw_player(player);
+        // draw_player_offset(player, 3);
+        break;
+    default:
+        break;
     }
-    
-    
+}
+    EndMode2D();
+    EndScissorMode();
 }
