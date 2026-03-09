@@ -5,7 +5,6 @@
 #include <stdlib.h> // Required for malloc/free
 #include <stdio.h>
 
-
 // =========================================================
 //                   - TODO -
 // =======================================================
@@ -66,7 +65,6 @@ typedef enum SCREENS
     RAY,
     TREE
 } SCREENS;
-
 
 typedef enum Neon_Colors
 {
@@ -233,40 +231,47 @@ Vector4 dda(int *map, int map_width, int map_height, Vector2 ro, float rads, flo
         side_dist_y = ((mapy + 1) - origin_y) * dy;
     }
 
-    int dof = 0;
+int dof = 0;
     while (dof < max_dof && !hit)
     {
         if (side_dist_x < side_dist_y)
         {
             side = 0;
             mapx += step_x;
-            hit_dist = side_dist_x;
             side_dist_x += dx;
+            // This is the perpendicular distance to the wall plane
+            hit_dist = side_dist_x - dx; 
         }
         else
         {
             side = 1;
             mapy += step_y;
-            hit_dist = side_dist_y;
             side_dist_y += dy;
+            // This is the perpendicular distance to the wall plane
+            hit_dist = side_dist_y - dy;
         }
+
+        // Boundary check
         if (mapx < 0 || mapx >= map_width || mapy < 0 || mapy >= map_height)
         {
-            hit = 1;
-            return (Vector4){.x = -1, .y = -1, .z = -1};
+            return (Vector4){.x = -1, .y = -1, .z = -1, .w = -1};
         }
+
         if (map[mapx + mapy * map_width] == WALL)
         {
             hit = 1;
         }
         dof++;
     }
-    // Convert back to world space
-    hit_dist *= world_space_units;
-    hitx = ro.x + (hit_dist * dirx);
-    hity = ro.y + (hit_dist * diry);
-    Vector4 hit_point = {.x = hitx, .y = hity, .z = hit_dist, .w = side};
-    return hit_point;
+
+    // Since hit_dist was calculated in tile-units, scale it to world space once at the end
+    float final_perp_dist = hit_dist * world_space_units;
+
+    // Use final_perp_dist for the hit coordinates so they stay on the wall
+    hitx = ro.x + (final_perp_dist * dirx);
+    hity = ro.y + (final_perp_dist * diry);
+
+    return (Vector4){.x = hitx, .y = hity, .z = final_perp_dist, .w = (float)side};
 }
 
 void set_player_offset(Player *player, float x_o, float y_o)
@@ -319,9 +324,9 @@ float controls_ang(Player *p, float rads, float dt)
     }
 }
 
-void controls(Player *p, float dt, Vector4* ray)
+void controls(Player *p, float dt, Vector4 *ray)
 {
-    dt = dt*GetFrameTime();
+    dt = dt * GetFrameTime();
     float rads = 0.1f;
     Vector2 next = {0};
 
@@ -358,8 +363,6 @@ void controls(Player *p, float dt, Vector4* ray)
         p->position.x += next.x;
         p->position.y += next.y;
     }
-
-    printf("%f\n", ray->z);
 }
 
 void init_player(Player *p, int map_size, int *map)
@@ -401,10 +404,17 @@ void init_player(Player *p, int map_size, int *map)
 
 Vector4 dda_fov_i(Player *player, int map_size, int *map, int num_rays, float fov_degrees, int tile_size, int max_dof, int i)
 {
-    // Convert FOV to Radians
     float fov_rad = fov_degrees * DEG2RAD;
-    float rayi_angle = (player->rad_angle - (fov_rad / 2.0f)) + (i * fov_rad / num_rays);
+    // Calculate the specific angle for this ray
+    float rayi_angle = (player->rad_angle - (fov_rad / 2.0f)) + (i * fov_rad / (float)num_rays);
+    
     Vector4 result = dda(map, 8, 8, player->position, rayi_angle, tile_size, max_dof);
+    
+    // --- THE FISHEYE FIX ---
+    // Multiply distance by the cosine of the relative angle
+    float relative_angle = rayi_angle - player->rad_angle;
+    result.z *= cosf(relative_angle); 
+    
     return result;
 }
 
@@ -412,85 +422,64 @@ void draw_dda_topdown(Vector2 player, Vector2 v)
 {
     DrawLineEx(player, v, 3.0f, RED);
 }
-#include <stdio.h>
-void draw_dda_fp(int ray_index, int num_rays, Vector4 v, int screen_w, int screen_h)
+
+void draw_dda_fp_at(int ray_index, int num_rays, Vector4 v, int screen_w, int screen_h, float sx, float sy)
 {
-    if (v.z <= 0.0001f) return;
+    if (v.z <= 0.01f) return;
 
-    // width of one ray column
-    float col_w = (float)screen_w / (float)num_rays; // 1 ray per column
-    float col_x = ray_index * col_w;
+    float col_w = (float)screen_w / (float)num_rays;
+    float col_x = sx + (ray_index * col_w); // Add scissor X offset
 
-    // distance (avoid division explosion)
-    float dist = v.z;
-    if (dist < 0.01f) dist = 0.01f;
+    float wall_h = (64.0f * screen_h) / v.z; // Use tile size (64) to scale height
 
-    // wall height projection
-    float wall_h = screen_h / dist;
+    float wall_top = sy + (screen_h * 0.5f) - (wall_h * 0.5f);
+    float wall_bottom = sy + (screen_h * 0.5f) + (wall_h * 0.5f);
 
-    float wall_top    = (screen_h * 0.5f) - (wall_h * 0.5f);
-    float wall_bottom = (screen_h * 0.5f) + (wall_h * 0.5f);
+    // Ceiling and Floor
+    DrawRectangle(col_x, sy, col_w + 1, (screen_h * 0.5f) - (wall_h * 0.5f), SKYBLUE);
+    DrawRectangle(col_x, wall_bottom, col_w + 1, sy + screen_h - wall_bottom, DARKGRAY);
 
-    // clamp
-    if (wall_top < 0) wall_top = 0;
-    if (wall_bottom > screen_h) wall_bottom = screen_h;
-
-    Vector2 start = { col_x, wall_top };
-    Vector2 end   = { col_x, wall_bottom };
-
-    // simple shading (y-side darker)
-    Color c = (v.w == 0)
-        ? BLUE
-        : (Color){ BLUE.r / 2, BLUE.g / 2, BLUE.b / 2, 255 };
-
-    DrawLineEx(start, end, col_w + 1, c);
+    // Wall column
+    Color c = (v.w == 0) ? BLUE : (Color){0, 0, 150, 255};
+    DrawRectangle(col_x, wall_top, col_w + 1, wall_h, c);
 }
-// void draw(Player *player, int map_size, int *map, int num_rays, float fov_degrees, int max_dof)
-// {
-//     //draw_player(player);
-//     //draw_player_offset(player, 3);
-//     float tile_size = 8 * 8; // map_w * map_h
-//     for (size_t i = 0; i < num_rays; i++)
-//     {
-//         Vector4 ray_i = dda_fov_i(player, map_size, map, num_rays, fov_degrees, tile_size, max_dof, i);
-        
-//         Vector2 rayi_v2 = (Vector2){.x = ray_i.x, .y = ray_i.y};
-//         draw_dda_topdown(player->position, rayi_v2);
-//         draw_dda_fp(player->position, ray_i);
-//     }
-    
-    
-// }
-void manage_scissor_camera(Rectangle *scissor_rect, Camera2D *cam, int *map, Vector2 subdivisions, Player *player, Color c, Vector2 world_tile_size, int id, Vector4* rdda)
-{
-    BeginScissorMode(scissor_rect->x, scissor_rect->y,
-                     scissor_rect->width, scissor_rect->height);
-    BeginMode2D(*cam);
 
-        for (size_t i = 0; i < 60; i++)
+void manage_scissor_camera(Rectangle *scissor_rect, Camera2D *cam, int *map, Vector2 subdivisions, Player *player, Color c, Vector2 world_tile_size, int id, Vector4 *rdda)
+{
+    BeginScissorMode(scissor_rect->x, scissor_rect->y, scissor_rect->width, scissor_rect->height);
+
+    if (id == RENDER)
     {
-        Vector4 ray_i = dda_fov_i(player, 64, map, 60, 60, 64, 8, i);
-        *rdda = ray_i;
-        Vector2 rayi_v2 = (Vector2){.x = ray_i.x, .y = ray_i.y};
-    switch (id)
-    {
-    case RENDER:
-        draw_dda_fp(i, 60, ray_i, scissor_rect->width, scissor_rect->height);
-        break;
-    case RAY:
-        draw_map_2D(64, 8, 8, map);
-        draw_player(player);
-        draw_dda_topdown(player->position, rayi_v2);
-    break;
-    case TREE:
-        // draw_map_2D(64, 8, 8, map);
-        // draw_player(player);
-        // draw_player_offset(player, 3);
-        break;
-    default:
-        break;
+        // 3D Rendering - Draw columns directly to the scissor area
+        for (int i = 0; i < 60; i++)
+        {
+            Vector4 ray_i = dda_fov_i(player, 64, map, 60, 60, 64, 8, i);
+            *rdda = ray_i; 
+            
+            // Draw column relative to scissor_rect.x and y
+            float col_w = scissor_rect->width / 60.0f;
+            float col_x = scissor_rect->x + (i * col_w);
+            
+            // Call your FP draw function but pass the calculated X
+            draw_dda_fp_at(i, 60, ray_i, scissor_rect->width, scissor_rect->height, scissor_rect->x, scissor_rect->y);
+        }
     }
-}
-    EndMode2D();
+    else 
+    {
+        // 2D Rendering - Use the Camera
+        BeginMode2D(*cam);
+        draw_map_2D(64, 8, 8, map); // Draw map once
+        draw_player(player);
+
+        for (int i = 0; i < 60; i++)
+        {
+            Vector4 ray_i = dda_fov_i(player, 64, map, 60, 60, 64, 8, i);
+            Vector2 rayi_v2 = (Vector2){.x = ray_i.x, .y = ray_i.y};
+            
+            if (id == RAY) draw_dda_topdown(player->position, rayi_v2);
+        }
+        EndMode2D();
+    }
+
     EndScissorMode();
 }
