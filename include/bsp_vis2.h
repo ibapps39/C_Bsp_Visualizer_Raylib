@@ -97,12 +97,12 @@ void init_player(Player *p, int map_size, int *map)
                 {
                     px = x;
                     py = y;
-                    break;
+                    goto found;
                 }
             }
         }
     }
-
+    found:;
     *p = (Player){
         .rad_angle = 0.0f,
         .x_offset = 0.0f,
@@ -252,15 +252,7 @@ void draw_player(Player *player)
     DrawRectangleV(center, player->size, player->color);
 }
 
-Vector2 get_next(float ux, float uy, int map_width, int scalar)
-{
 
-    Vector2 next = {
-        .x = ( ux / map_width) * scalar,
-        .y = ( uy / map_width) * scalar
-    };
-    return next;
-}
 
 float controls_ang(Player *p, float rads, float dt)
 {
@@ -287,41 +279,33 @@ float controls_ang(Player *p, float rads, float dt)
 //[=======================================================================================================================================]
 //  CONTROLS
 //[=======================================================================================================================================]
-void controls(Player *p, float dt, Vector4 *ray)
+void controls(Player *p, float move_speed, float dt, Vector4 *ray)
 {
-    dt = dt * GetFrameTime();
-    float rads = 0.1f;
-    Vector2 next = {0};
+    float rads = 2.5f * dt;  // rotation speed
+    float speed = move_speed * dt;
 
     if (IsKeyDown(KEY_A))
-    {
         controls_ang(p, -rads, dt);
-    }
 
     if (IsKeyDown(KEY_D))
-    {
         controls_ang(p, rads, dt);
-    }
 
     if (IsKeyDown(KEY_W))
     {
         if (ray->z > 2)
         {
-            next = get_next(p->player_angle.x, p->player_angle.y, 8, 20);
+            p->position.x += p->player_angle.x * speed;
+            p->position.y += p->player_angle.y * speed;
         }
-
-        p->position.x += next.x;
-        p->position.y += next.y;
     }
 
     if (IsKeyDown(KEY_S))
     {
         if (ray->z > 2)
         {
-            next = get_next(-p->player_angle.x, -p->player_angle.y, 8, 20);
+            p->position.x -= p->player_angle.x * speed;
+            p->position.y -= p->player_angle.y * speed;
         }
-        p->position.x += next.x;
-        p->position.y += next.y;
     }
 }
 //[=======================================================================================================================================]
@@ -418,7 +402,7 @@ Vector4 dda(int *map, int map_width, int map_height, Vector2 ro, float rads, flo
 
     return (Vector4){.x = hitx, .y = hity, .z = final_perp_dist, .w = (float)side};
 }
-// Adjusts DDA ray to account for player angle
+// Adjusts DDA ray to account for player angle per i of for loop
 Vector4 dda_fov_i(Player *player, int map_size, int *map, int num_rays, float fov_degrees, int tile_size, int max_dof, int i)
 {
     float fov_rad = fov_degrees * DEG2RAD;
@@ -467,6 +451,20 @@ void draw_dda_fp_at(int ray_index, int num_rays, Vector4 v, int screen_w, int sc
 //[=======================================================================================================================================]
 //  DDA 
 //[=======================================================================================================================================]
+//[=======================================================================================================================================]
+// Sample Texutre - Brick, Stone, Wood Procedural
+//[=======================================================================================================================================]
+Color sample_texture(int type, float u, float v)
+{
+// Brick — if (fmod(u * 4, 1.0) < 0.05 || fmod(v * 8 + (floor(u*4) * 0.5), 1.0) < 0.05) → return mortar color, else brick color
+// Stone — layered sinf(u * freq) * sinf(v * freq) with some noise gives a convincing cracked look
+// Wood — sinf(sqrt(u*u + v*v) * rings) gives concentric grain rings
+// If side == 0 (vertical wall hit) → u = fmod(player.y + dist * diry, tile_size) / tile_size
+// If side == 1 (horizontal wall hit) → u = fmod(player.x + dist * dirx, tile_size) / tile_size
+//Then v is just how far down the wall column you're drawing at each pixel.
+}
+
+
 //[=======================================================================================================================================]
 //  SCISSOR Rendering
 //[=======================================================================================================================================]

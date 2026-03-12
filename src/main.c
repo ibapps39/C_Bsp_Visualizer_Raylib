@@ -82,7 +82,7 @@ int main(void)
         
         // --- Update player ---
         Vector4* r = &rdda;
-        controls(&player, move_speed_factor, r);
+        controls(&player, move_speed_factor, GetFrameTime(), r);
 
         // --- MAP VIEW ---
         update_camera(&map_cam, player.position, get_rect_center(left_half), 1.0f);
