@@ -29,7 +29,7 @@ int main(void)
     Vector2 world_tile_size;
     Vector2 player_size;
     float tile_sw, tile_sh;
-    Camera2D map_cam, mini_map_cam, tree_cam;
+    Camera2D map_cam, mini_map_cam, INFO_cam;
     Player player;
     Rectangle left_half, upper_right, lower_right;
 
@@ -51,10 +51,11 @@ int main(void)
     // Cameras
     map_cam = init_cam(screen_center);
     mini_map_cam = init_cam(player.position);
-    tree_cam = init_cam(screen_center);
+    INFO_cam = init_cam(screen_center);
 
     float move_speed_factor = 200;
     Vector4 rdda = (Vector4){.x = 0, .y = 0, .z = 0, .w = 0};
+    int num_rays = 60;
 
     while (!WindowShouldClose())
     {
@@ -77,7 +78,7 @@ int main(void)
             
             map_cam = init_cam(screen_center);
             mini_map_cam = init_cam(screen_center);
-            tree_cam = init_cam(screen_center);
+            INFO_cam = init_cam(screen_center);
         }
         
         // --- Update player ---
@@ -90,28 +91,28 @@ int main(void)
         Vector2 upper_right_to_world = get_rec_to_world(upper_right, world_dimensions);
         float mini_map_zoom = fminf(upper_right_to_world.x, upper_right_to_world.y);
         update_camera(&mini_map_cam, get_map_world_center(world_dimensions), get_rect_center(upper_right), mini_map_zoom);
-        // --- TREE VIEW  ---
+        // --- INFO VIEW  ---
         Vector2 lower_right_to_world = get_rec_to_world(lower_right, world_dimensions);
-        float tree_zoom = fminf(lower_right_to_world.x, lower_right_to_world.y);
-        update_camera(&tree_cam, get_map_world_center(world_dimensions), get_rect_center(lower_right), mini_map_zoom);
+        float INFO_zoom = fminf(lower_right_to_world.x, lower_right_to_world.y);
+        update_camera(&INFO_cam, get_map_world_center(world_dimensions), get_rect_center(lower_right), mini_map_zoom);
 
         // --- RENDER ---
         BeginDrawing();
         ClearBackground(BLACK);
 
         // RENDER VIEW
-        manage_scissor_camera(&left_half, &map_cam, map, map_subdivisions, &player, RED, world_tile_size, RENDER, r);
+        manage_scissor_camera(&left_half, &map_cam, map, map_subdivisions, &player, RED, world_tile_size, RENDER, r, num_rays);
         // RAY RIGHT VIEW
-        manage_scissor_camera(&upper_right, &mini_map_cam, map, map_subdivisions, &player, RED, world_tile_size, RAY, r);
-        // TREE RIGHT VIEW
-        manage_scissor_camera(&lower_right, &mini_map_cam, map, map_subdivisions, &player, RED, world_tile_size, TREE, r);
+        manage_scissor_camera(&upper_right, &mini_map_cam, map, map_subdivisions, &player, RED, world_tile_size, RAY, r, num_rays);
+        // INFO RIGHT VIEW
+        manage_scissor_camera(&lower_right, &mini_map_cam, map, map_subdivisions, &player, RED, world_tile_size, INFO, r, num_rays);
 
         // Left View Title
         DrawText("Rendered", left_half.x + 20, left_half.y + 20, 20, WHITE);
         // Right View Title
         DrawText("Ray Cast", upper_right.x + 20, upper_right.y + 20, 20, WHITE);
         // Bottom Right View Title
-        DrawText("BSP Tree", lower_right.x + 20, lower_right.y + 20, 20, WHITE);
+        DrawText("Info", lower_right.x + 20, lower_right.y + 20, 20, WHITE);
         // Draw player angle
         EndDrawing();
     }

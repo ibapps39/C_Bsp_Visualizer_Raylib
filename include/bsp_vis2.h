@@ -61,7 +61,7 @@ typedef enum SCREENS
 {
     RENDER,
     RAY,
-    TREE
+    INFO
 } SCREENS;
 
 typedef enum Neon_Colors
@@ -468,7 +468,7 @@ Color sample_texture(int type, float u, float v)
 //[=======================================================================================================================================]
 //  SCISSOR Rendering
 //[=======================================================================================================================================]
-void manage_scissor_camera(Rectangle *scissor_rect, Camera2D *cam, int *map, Vector2 subdivisions, Player *player, Color c, Vector2 world_tile_size, int id, Vector4 *rdda)
+void manage_scissor_camera(Rectangle *scissor_rect, Camera2D *cam, int *map, Vector2 subdivisions, Player *player, Color c, Vector2 world_tile_size, int id, Vector4 *rdda, int num_rays)
 {
     BeginScissorMode(scissor_rect->x, scissor_rect->y, scissor_rect->width, scissor_rect->height);
 
@@ -477,13 +477,13 @@ void manage_scissor_camera(Rectangle *scissor_rect, Camera2D *cam, int *map, Vec
     case (RENDER):
     {
         // 3D Rendering - Draw columns directly to the scissor area
-        for (int i = 0; i < 60; i++)
+        for (int i = 0; i < num_rays; i++)
         {
-            Vector4 ray_i = dda_fov_i(player, 64, map, 60, 60, 64, 8, i);
+            Vector4 ray_i = dda_fov_i(player, subdivisions.x*subdivisions.y, map, num_rays, num_rays, subdivisions.x*subdivisions.y, 8, i);
             *rdda = ray_i;
 
             // Call your FP draw function but pass the calculated X
-            draw_dda_fp_at(i, 60, ray_i, scissor_rect->width, scissor_rect->height, scissor_rect->x, scissor_rect->y);
+            draw_dda_fp_at(i, num_rays, ray_i, scissor_rect->width, scissor_rect->height, scissor_rect->x, scissor_rect->y);
         }
         break;
     }
@@ -491,20 +491,21 @@ void manage_scissor_camera(Rectangle *scissor_rect, Camera2D *cam, int *map, Vec
         {
             // 2D Rendering - Use the Camera
             BeginMode2D(*cam);
-            draw_map_2D(64, 8, 8, map); // Draw map once
+            draw_map_2D(subdivisions.x*subdivisions.y, subdivisions.x, subdivisions.y, map); // Draw map once
             draw_player(player);
 
-            for (int i = 0; i < 60; i++)
+            for (int i = 0; i < num_rays; i++)
             {
-                Vector4 ray_i = dda_fov_i(player, 64, map, 60, 60, 64, 8, i);
+                Vector4 ray_i = dda_fov_i(player, subdivisions.x*subdivisions.y, map, num_rays, num_rays, subdivisions.x*subdivisions.y, 8, i);
                 Vector2 rayi_v2 = (Vector2){.x = ray_i.x, .y = ray_i.y};
                 draw_dda_topdown(player->position, rayi_v2);
             }
             EndMode2D();
             break;
         }
-        case (TREE):
+        case (INFO):
         {
+            DrawRectangle(scissor_rect->x, scissor_rect->y, scissor_rect->width, scissor_rect->height, DARKGREEN);
             int font_size = 20;
             int current_offset_x = scissor_rect->x + font_size;
             int current_offset_y = scissor_rect->y + font_size;
@@ -514,6 +515,11 @@ void manage_scissor_camera(Rectangle *scissor_rect, Camera2D *cam, int *map, Vec
             // Draw Player Angle
             current_offset_y += 20;
             DrawText(TextFormat("angle: %.2f", player->rad_angle), current_offset_x, current_offset_y, 20, WHITE);
+            int px = (int)(player->position.x/world_tile_size.x);
+            int py = (int)(player->position.y/world_tile_size.y);
+            DrawText(TextFormat("Player map index: x:%i, y:%i", px, py), current_offset_x, current_offset_y + 20, font_size, WHITE);
+            DrawText(TextFormat("Current Index: %i", (int)(py * subdivisions.y + px)), current_offset_x, current_offset_y + 40, font_size, WHITE);
+            DrawText(TextFormat("Number of Rays: %i", num_rays), current_offset_x, current_offset_y + num_rays, font_size, WHITE);
             break;
         }
     }
